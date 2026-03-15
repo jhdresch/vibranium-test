@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+
+    <!-- Console "normal" -->
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss} %-5level [%thread] %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- Força a property vinda de env ou system property, com default -->
+    <property name="ELASTIC_URL" value="${ELASTICSEARCH_URL:-http://localhost:9200}" />
+
+    <!-- Appender custom que manda pro Elasticsearch -->
+    <appender name="ELASTIC_HTTP" class="com.vibranium.payment.config.log.ElasticsearchHttpAppender">
+        <!-- URL completa: índice + _doc -->
+        <url>${ELASTIC_URL}/payment-service/_doc</url>
+        <!-- Se a app estiver em container junto do ES:
+        <url>http://elasticsearch:9200/spring-logs/_doc</url>
+        -->
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="STDOUT" />
+        <appender-ref ref="ELASTIC_HTTP" />
+    </root>
+
+</configuration>

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+
+    <!-- Força a property vinda de env ou system property, com default -->
+    <property name="ELASTIC_URL" value="${ELASTICSEARCH_URL:-http://localhost:9200}" />
+
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss} %-5level [%thread] %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <appender name="ELASTIC_HTTP" class="com.vibranium.sale.config.log.ElasticsearchHttpAppender">
+        <url>${ELASTIC_URL}/sale-service/_doc</url>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="STDOUT" />
+        <appender-ref ref="ELASTIC_HTTP" />
+    </root>
+
+</configuration>
