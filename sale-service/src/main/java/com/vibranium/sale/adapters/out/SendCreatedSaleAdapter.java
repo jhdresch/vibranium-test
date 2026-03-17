@@ -5,6 +5,7 @@ import com.vibranium.sale.application.core.domain.Sale;
 import com.vibranium.sale.application.core.domain.enums.SaleEvent;
 import com.vibranium.sale.application.ports.out.SendCreatedSaleOutputPort;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.micrometer.observation.annotation.Observed;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
@@ -21,6 +22,7 @@ public class SendCreatedSaleAdapter implements SendCreatedSaleOutputPort {
 
     @Override
     @CircuitBreaker(name = "kafkaAccess", fallbackMethod = "sendFallback")
+    @Observed(name = "kafka.send.tp-saga-orchestrator")
     public void send(Sale sale, SaleEvent event) {
         try {
             var saleMessage = new SaleMessage(sale, event);
@@ -36,14 +38,9 @@ public class SendCreatedSaleAdapter implements SendCreatedSaleOutputPort {
                     });
         } catch (Exception e) {
             log.error("Error sending message to Kafka synchronously", e);
-            // ❌ NÃO relançar a exceção! Apenas log e deixa o CircuitBreaker fazer seu trabalho
         }
     }
 
-    /**
-     * Fallback chamado quando o circuit breaker está aberto
-     * IMPORTANTE: NÃO lançar exceção aqui!
-     */
     private void sendFallback(Sale sale, SaleEvent event, Throwable t) {
         log.error(
                 "Fallback: Kafka unavailable or circuit breaker open. " +
@@ -55,24 +52,5 @@ public class SendCreatedSaleAdapter implements SendCreatedSaleOutputPort {
                 event,
                 t
         );
-
-        // ✅ SOLUÇÃO: Armazenar em banco para retentativa posterior
-        saveForLaterRetry(sale, event);
-
-        // ❌ NÃO faça isso:
-        // throw new RuntimeException(...);
-    }
-
-    /**
-     * Salva a mensagem no banco para ser retentada depois
-     * (implementação com MongoDB, MySQL, etc)
-     */
-    private void saveForLaterRetry(Sale sale, SaleEvent event) {
-        // TODO: Implementar persistência para retentativa
-        // Exemplo com MongoDB:
-        // failedMessageRepository.save(new FailedMessage(sale, event));
-
-        log.info("Message saved for later retry: saleId={}, event={}",
-                sale.getId(), event);
     }
 }

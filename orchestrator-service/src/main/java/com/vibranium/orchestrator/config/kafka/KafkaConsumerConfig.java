@@ -26,13 +26,13 @@ import static org.apache.kafka.clients.producer.ProducerConfig.RETRY_BACKOFF_MS_
 public class KafkaConsumerConfig {
 
 
-    @Value("${environment.KAFKA_BOOTSTRAP_SERVERS}")
-    private String KAFKA_BOOTSTRAP_SERVERS;
+    @Value("${spring.kafka.bootstrap-servers:localhost:9092}")
+    private String SPRING_KAFKA_BOOTSTRAP_SERVERS;
 
     @Bean
     public ConsumerFactory<String, SaleMessage> consumerFactory() {
         Map<String, Object> props = new HashMap<>();
-        props.put(BOOTSTRAP_SERVERS_CONFIG, KAFKA_BOOTSTRAP_SERVERS);
+        props.put(BOOTSTRAP_SERVERS_CONFIG, SPRING_KAFKA_BOOTSTRAP_SERVERS);
         props.put(KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
         props.put(VALUE_DESERIALIZER_CLASS_CONFIG, CustomDeserializer.class);
         props.put(AUTO_OFFSET_RESET_CONFIG, "earliest");

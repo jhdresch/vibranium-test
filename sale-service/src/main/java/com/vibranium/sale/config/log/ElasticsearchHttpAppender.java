@@ -1,64 +1,91 @@
 package com.vibranium.sale.config.log;
 
+import ch.qos.logback.core.UnsynchronizedAppenderBase;
 import ch.qos.logback.classic.spi.ILoggingEvent;
-import ch.qos.logback.core.AppenderBase;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.web.client.RestTemplate;
+import java.net.InetAddress;
+import java.util.concurrent.atomic.AtomicBoolean;
 
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.time.Instant;
-import java.util.HashMap;
-import java.util.Map;
-
-
-public class ElasticsearchHttpAppender extends AppenderBase<ILoggingEvent> {
-
-    private final ObjectMapper objectMapper = new ObjectMapper();
+public class ElasticsearchHttpAppender extends UnsynchronizedAppenderBase<ILoggingEvent> {
 
     private String url;
-
-    @Value("${environment.ELASTICSEARCH_URL}")
-    private String urlSpring;
+    private final RestTemplate restTemplate = new RestTemplate();
+    private final AtomicBoolean elasticsearchAvailable = new AtomicBoolean(false);
+    private final AtomicBoolean initializationChecked = new AtomicBoolean(false);
 
     public void setUrl(String url) {
         this.url = url;
     }
 
     @Override
-    protected void append(ILoggingEvent eventObject) {
-        try {
-            Map<String, Object> doc = new HashMap<>();
-            doc.put("@timestamp", Instant.ofEpochMilli(eventObject.getTimeStamp()).toString());
-            doc.put("level", eventObject.getLevel().toString());
-            doc.put("logger", eventObject.getLoggerName());
-            doc.put("thread", eventObject.getThreadName());
-            doc.put("message", eventObject.getFormattedMessage());
-
-            // campos fixos úteis
-            doc.put("service", "sale-service");
-            doc.put("environment", "dev");
-
-            byte[] json = objectMapper.writeValueAsBytes(doc);
-
-            HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
-            conn.setRequestMethod("POST");
-            conn.setRequestProperty("Content-Type", "application/json");
-            conn.setDoOutput(true);
-
-            try (OutputStream os = conn.getOutputStream()) {
-                os.write(json);
-            }
-
-            int status = conn.getResponseCode();
-            // se quiser debugar problemas de envio, pode tratar status >= 400 aqui
-
-            conn.disconnect();
-        } catch (Exception e) {
-            // nunca use logger aqui pra não criar loop, só printa no stderr
-            e.printStackTrace();
+    protected void append(ILoggingEvent event) {
+        // NÃO tente enviar logs durante a inicialização do Spring
+        if (!initializationChecked.get() &&
+                (event.getLoggerName().contains("org.springframework") ||
+                        event.getLoggerName().contains("org.hibernate") ||
+                        event.getLoggerName().contains("org.apache"))) {
+            return;
         }
+
+        // Verifica se o Elasticsearch está disponível (apenas uma vez)
+        if (!initializationChecked.get()) {
+            checkElasticsearchAvailability();
+            initializationChecked.set(true);
+        }
+
+        // Se não estiver disponível, não tenta enviar
+        if (!elasticsearchAvailable.get()) {
+            return;
+        }
+
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+
+            String logJson = String.format(
+                    "{\"@timestamp\":\"%s\",\"level\":\"%s\",\"logger\":\"%s\",\"message\":\"%s\",\"thread\":\"%s\"}",
+                    new java.util.Date(event.getTimeStamp()).toInstant().toString(),
+                    event.getLevel().toString(),
+                    event.getLoggerName(),
+                    event.getFormattedMessage().replace("\"", "\\\""),
+                    event.getThreadName()
+            );
+
+            HttpEntity<String> request = new HttpEntity<>(logJson, headers);
+            restTemplate.postForObject(url, request, String.class);
+        } catch (Exception e) {
+            // Silently ignore errors
+            elasticsearchAvailable.set(false);
+        }
+    }
+
+    private void checkElasticsearchAvailability() {
+        try {
+            // Tenta resolver o hostname primeiro
+            String host = extractHostFromUrl(url);
+
+            // Tenta resolver o hostname
+            InetAddress address = InetAddress.getByName(host);
+            System.out.println("Elasticsearch host resolved to: " + address.getHostAddress());
+
+            // Tenta uma requisição HEAD para verificar se o Elasticsearch está disponível
+            String healthUrl = url.replace("/sale-service/_doc", "/_cluster/health");
+            restTemplate.headForHeaders(healthUrl);
+            elasticsearchAvailable.set(true);
+            System.out.println("Elasticsearch is available at: " + url);
+        } catch (Exception e) {
+            elasticsearchAvailable.set(false);
+            System.err.println("Elasticsearch not available: " + e.getMessage());
+        }
+    }
+
+    private String extractHostFromUrl(String url) {
+        // Remove protocolo
+        String withoutProtocol = url.replace("http://", "").replace("https://", "");
+        // Pega apenas o host (antes da primeira /)
+        return withoutProtocol.split("/")[0];
     }
 }

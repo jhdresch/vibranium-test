@@ -8,8 +8,7 @@
 	<parent>
 		<groupId>org.springframework.boot</groupId>
 		<artifactId>spring-boot-starter-parent</artifactId>
-		<version>3.0.1</version>
-		<relativePath/> <!-- lookup parent from repository -->
+		<version>3.2.0</version>
 	</parent>
 
 	<groupId>com.vibranium</groupId>
@@ -86,10 +85,30 @@
 			<artifactId>jackson-databind</artifactId>
 			<version>2.14.0</version>
 		</dependency>
+		<!-- ACTUATOR (base observabilidade) -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-actuator</artifactId>
 		</dependency>
+
+		<!-- PROMETHEUS -->
+		<dependency>
+			<groupId>io.micrometer</groupId>
+			<artifactId>micrometer-registry-prometheus</artifactId>
+		</dependency>
+
+		<!-- TRACING (OpenTelemetry + Jaeger) -->
+		<dependency>
+			<groupId>io.micrometer</groupId>
+			<artifactId>micrometer-tracing-bridge-otel</artifactId>
+		</dependency>
+
+		<dependency>
+			<groupId>io.opentelemetry</groupId>
+			<artifactId>opentelemetry-exporter-otlp</artifactId>
+		</dependency>
+
+
 
 		<!-- Resilience4j para Spring Boot 3 -->
 		<dependency>

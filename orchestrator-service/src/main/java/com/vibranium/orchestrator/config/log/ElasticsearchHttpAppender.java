@@ -3,7 +3,6 @@ package com.vibranium.orchestrator.config.log;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.AppenderBase;
 import com.fasterxml.jackson.databind.ObjectMapper;
-
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -11,10 +10,11 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 
+
 public class ElasticsearchHttpAppender extends AppenderBase<ILoggingEvent> {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
-    private String url; // ex.: http://localhost:9200/orchestrator-service/_doc
+    private String url;
 
     public void setUrl(String url) {
         this.url = url;
@@ -31,7 +31,7 @@ public class ElasticsearchHttpAppender extends AppenderBase<ILoggingEvent> {
             doc.put("message", eventObject.getFormattedMessage());
 
             // campos fixos úteis
-            doc.put("service", "sale-service");
+            doc.put("service", "orchestrator-service");
             doc.put("environment", "dev");
 
             byte[] json = objectMapper.writeValueAsBytes(doc);

@@ -19,13 +19,13 @@ import static org.apache.kafka.clients.producer.ProducerConfig.*;
 @Configuration
 public class KafkaSaleProducerConfig {
 
-    @Value("${environment.KAFKA_BOOTSTRAP_SERVERS}")
-    private String KAFKA_BOOTSTRAP_SERVERS;
+    @Value("${spring.kafka.bootstrap-servers:localhost:9092}")
+    private String SPRING_KAFKA_BOOTSTRAP_SERVERS;
 
     @Bean
     public ProducerFactory<String, SaleMessage> producerFactory() {
         Map<String, Object> configProps = new HashMap<>();
-        configProps.put(BOOTSTRAP_SERVERS_CONFIG,KAFKA_BOOTSTRAP_SERVERS);
+        configProps.put(BOOTSTRAP_SERVERS_CONFIG,SPRING_KAFKA_BOOTSTRAP_SERVERS);
         configProps.put(GROUP_ID_CONFIG, "sale");
         configProps.put(KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
         configProps.put(VALUE_SERIALIZER_CLASS_CONFIG, CustomSerializer.class);
