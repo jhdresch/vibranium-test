@@ -1,0 +1,149 @@
+
+services:
+
+  sale-service:
+    image: maven:3.9.6-eclipse-temurin-17
+    container_name: sale-service
+    hostname: sale-service
+    working_dir: /sale-service
+    volumes:
+      - ./sale-service:/sale-service
+    command: >
+      sh -c "mvn clean package -DskipTests && java -jar target/*.jar"
+    ports:
+      - "8081:8081"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://db:3306/saga_sale
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: sales123
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+
+      MANAGEMENT_OTLP_TRACING_ENDPOINT: http://jaeger:4318/v1/traces
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      SPRING_APPLICATION_NAME: sale-service
+      LOGGING_LEVEL_IO_OPENTELEMETRY_EXPORTER_OTLP: DEBUG
+      LOGGING_LEVEL_IO_MICROMETER_TRACING: DEBUG
+      LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_BOOT_ACTUATE_AUTOCONFIGURE_TRACING: DEBUG
+      JAVA_OPTS: "-Dnetworkaddress.cache.ttl=60 -Dnetworkaddress.cache.negative.ttl=10 -Dotel.traces.exporter=otlp -Dotel.metrics.exporter=none -Dotel.logs.exporter=none"
+    networks:
+      - saga-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+
+
+  inventory-service:
+    image: maven:3.9.6-eclipse-temurin-17
+    container_name: inventory-service
+    hostname: inventory-service
+    working_dir: /inventory-service
+    volumes:
+      - ./inventory-service:/inventory-service
+    command: >
+      sh -c "mvn clean package -DskipTests && java -jar target/*.jar"
+    ports:
+      - "8082:8082"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://db:3306/saga_inventory
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: sales123
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+
+      MANAGEMENT_OTLP_TRACING_ENDPOINT: http://jaeger:4318/v1/traces
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      SPRING_APPLICATION_NAME: sale-service
+      LOGGING_LEVEL_IO_OPENTELEMETRY_EXPORTER_OTLP: DEBUG
+      LOGGING_LEVEL_IO_MICROMETER_TRACING: DEBUG
+      LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_BOOT_ACTUATE_AUTOCONFIGURE_TRACING: DEBUG
+      JAVA_OPTS: "-Dnetworkaddress.cache.ttl=60 -Dnetworkaddress.cache.negative.ttl=10 -Dotel.traces.exporter=otlp -Dotel.metrics.exporter=none -Dotel.logs.exporter=none"
+    networks:
+      - saga-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8082/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+
+  payment-service:
+    image: maven:3.9.6-eclipse-temurin-17
+    container_name: payment-service
+    hostname: payment-service
+    working_dir: /payment-service
+    volumes:
+      - ./payment-service:/payment-service
+    command: >
+      sh -c "mvn clean package -DskipTests && java -jar target/*.jar"
+    ports:
+      - "8083:8083"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://db:3306/saga_payment
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: sales123
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+
+      MANAGEMENT_OTLP_TRACING_ENDPOINT: http://jaeger:4318/v1/traces
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      SPRING_APPLICATION_NAME: payment-service
+      LOGGING_LEVEL_IO_OPENTELEMETRY_EXPORTER_OTLP: DEBUG
+      LOGGING_LEVEL_IO_MICROMETER_TRACING: DEBUG
+      LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_BOOT_ACTUATE_AUTOCONFIGURE_TRACING: DEBUG
+      JAVA_OPTS: "-Dnetworkaddress.cache.ttl=60 -Dnetworkaddress.cache.negative.ttl=10 -Dotel.traces.exporter=otlp -Dotel.metrics.exporter=none -Dotel.logs.exporter=none"
+    networks:
+      - saga-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8083/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+
+  orchestrator-service:
+    image: maven:3.9.6-eclipse-temurin-17
+    container_name: sale-orchestrator
+    hostname: sale-orchestrator
+    working_dir: /orchestrator-service
+    volumes:
+      - ./orchestrator-service:/orchestrator-service
+    command: >
+      sh -c "mvn clean package -DskipTests && java -jar target/*.jar"
+    ports:
+      - "8084:8084"
+    environment:
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      MANAGEMENT_OTLP_TRACING_ENDPOINT: http://jaeger:4318/v1/traces
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      SPRING_APPLICATION_NAME: sale-orchestrator
+      LOGGING_LEVEL_IO_OPENTELEMETRY_EXPORTER_OTLP: DEBUG
+      LOGGING_LEVEL_IO_MICROMETER_TRACING: DEBUG
+      LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_BOOT_ACTUCONFIGURE_TRACING: DEBUG
+      JAVA_OPTS: "-Dnetworkaddress.cache.ttl=60 -Dnetworkaddress.cache.negative.ttl=10 -Dotel.traces.exporter=otlp -Dotel.metrics.exporter=none -Dotel.logs.exporter=none"
+    networks:
+      - saga-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8084/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+
+networks:
+  saga-net:
+    external: true
+    name: saga-net
+  

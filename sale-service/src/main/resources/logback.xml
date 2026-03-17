@@ -10,9 +10,11 @@
         </encoder>
     </appender>
 
+
     <appender name="ELASTIC_HTTP" class="com.vibranium.sale.config.log.ElasticsearchHttpAppender">
         <url>${ELASTIC_URL}/sale-service/_doc</url>
     </appender>
+
 
     <root level="INFO">
         <appender-ref ref="STDOUT" />

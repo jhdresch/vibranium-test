@@ -11,11 +11,7 @@
     <property name="ELASTIC_URL" value="${ELASTICSEARCH_URL:-http://localhost:9200}" />
     <!-- Appender custom que manda pro Elasticsearch -->
     <appender name="ELASTIC_HTTP" class="com.vibranium.inventory.config.log.ElasticsearchHttpAppender">
-        <!-- URL completa: índice + _doc -->
         <url>${ELASTIC_URL}/inventory_service/_doc</url>
-        <!-- Se a app estiver em container junto do ES:
-        <url>http://elasticsearch:9200/spring-logs/_doc</url>
-        -->
     </appender>
 
     <root level="INFO">

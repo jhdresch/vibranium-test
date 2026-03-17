@@ -1,8 +1,15 @@
 # Vibranium Saga Orquestrada
 
-Este projeto implementa um fluxo de **compra e venda** usando **microsserviços em Java 17 / Spring Boot** e comunicação assíncrona via **Kafka**, seguindo o padrão de arquitetura **SAGA** para orquestração de transações distribuídas.
+Este projeto implementa um fluxo de **compra e venda** usando **microsserviços em Java 17 / Spring Boot** e comunicação assíncrona via **Kafka**, seguindo o padrão de arquitetura **SAGA Orquestrada** para transações distribuídas.
 
-A infraestrutura (Kafka, MySQL, Elasticsearch, etc.) sobe em Docker, mas os serviços Java podem ser compilados e executados **localmente** com Maven + Java 17.
+Toda a stack (infra + apps) pode ser executada via **Docker Compose**:
+
+```bash
+docker compose -f docker-compose.infra.yml up -d   # Infraestrutura
+docker compose -f docker-compose.app.yml   up -d   # Aplicações (microsserviços)
+```
+
+Você também pode rodar os serviços manualmente com Maven/Java, se preferir.
 
 ---
 
@@ -10,10 +17,8 @@ A infraestrutura (Kafka, MySQL, Elasticsearch, etc.) sobe em Docker, mas os serv
 
 ### Infraestrutura (Docker)
 
-Para subir apenas a **infra**:
-
 - Docker instalado e em execução  
-- Docker Compose disponível (`docker compose` funcional)  
+- Docker Compose disponível (`docker compose` funcional)
 
 Na raiz do projeto:
 
@@ -23,16 +28,17 @@ docker compose -f docker-compose.infra.yml up -d
 
 Isso sobe:
 
-- `zookeeper`
-- `kafka`
-- `mysql-db`
-- `elasticsearch`
-- `kibana`
-- Rede `saga-net`
+- `zookeeper` – coordenação do Kafka  
+- `kafka` – broker de eventos para a SAGA  
+- `mysql-db` – banco relacional dos serviços  
+- `elasticsearch` – armazenamento de logs estruturados  
+- `kibana` – visualização de logs  
+- `prometheus` – métricas  
+- `grafana` – dashboards de métricas  
+- `jaeger` – tracing distribuído (OTLP)  
+- Rede Docker `saga-net`
 
-### Serviços Java (localmente)
-
-Para rodar os microsserviços localmente:
+### Serviços Java (quando rodar manualmente)
 
 - **Java 17 (JDK 17)**  
   ```bash
@@ -47,60 +53,278 @@ Para rodar os microsserviços localmente:
 
 ## 🧱 Visão da Arquitetura
 
-- **Microserviços principais**:
-  - `sale-service` → expõe a API HTTP de compra/venda
-  - `inventory-service`
-  - `payment-service`
-  - `orchestrator-service`
+### Microsserviços principais
 
-- **Comunicação entre serviços**:
-  - Realizada via **Kafka** (tópicos)
-  - Os eventos de venda, pagamento e estoque são propagados entre os serviços via mensagens
-  - O `orchestrator-service` coordena o fluxo das etapas, implementando o padrão **SAGA Orquestrada**
+- `sale-service`  
+  - Exposição da **API HTTP de compra/venda**  
+  - Publica eventos no Kafka para iniciar o fluxo da SAGA
 
-- **Ponto importante**:  
-  **Existe apenas uma API HTTP pública exposta para compra/venda**, e ela está no **`sale-service`**.  
-  Todo o restante do fluxo (pagamento, reserva de estoque, compensações, cancelamentos) acontece via eventos no Kafka, entre os microserviços.
+- `inventory-service`  
+  - Responsável por **baixa/compensação de estoque**  
+  - Consome eventos do Kafka (venda criada, cancelada, etc.)  
+  - Persiste o estado de estoque relacionado à venda
+
+- `payment-service`  
+  - Responsável por **processar pagamentos** e, se necessário, estornar  
+  - Consome eventos do Kafka e publica eventos de sucesso/falha  
+  - Persiste transações de pagamento
+
+- `orchestrator-service`  
+  - É o **orquestrador da SAGA**  
+  - Decide a próxima etapa (payment → inventory → confirmação, etc.)  
+  - Dispara eventos de compensação em caso de falha (cancelar pagamento, liberar estoque, cancelar venda)
+
+### Comunicação entre serviços
+
+- Realizada via **Kafka** (tópicos específicos para cada evento da SAGA).
+- O `orchestrator-service` coordena o fluxo, implementando o padrão **SAGA Orquestrada**:
+  - Encadeia os passos (validação, pagamento, estoque…)
+  - Garante compensações em caso de erro (rollback “por eventos”).
+
+### Única API HTTP pública
+
+**Toda a interação HTTP de compra/venda acontece apenas via `sale-service`.**
+
+- Base URL: `http://localhost:8081`
+- Contexto da API: `/api/v1/sales`
+
+Os demais serviços (`inventory-service`, `payment-service`, `orchestrator-service`) trabalham apenas via **eventos Kafka**, sem expor endpoints HTTP para o fluxo da SAGA.
+
+---
+
+## 🧩 Infraestrutura no `docker-compose.infra.yml`
+
+A infra é definida com serviços como:
+
+```yaml
+services:
+
+  # ===============================
+  # ZOOKEEPER
+  # ===============================
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo ruok | nc localhost 2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - saga-net
+
+  # ===============================
+  # KAFKA
+  # ===============================
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka
+    hostname: kafka
+    ports:
+      - "9092:9092"
+      - "19092:19092"
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+
+      # Listener interno para containers (saga-net) e externo para localhost
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_LISTENERS: INTERNAL://kafka:19092,EXTERNAL://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:19092,EXTERNAL://localhost:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    healthcheck:
+      test: ["CMD", "bash", "-c", "nc -z localhost 9092"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - saga-net
+
+  # ===============================
+  # MYSQL
+  # ===============================
+  db:
+    image: mysql:8.0
+    container_name: mysql-db
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: sales123
+    volumes:
+      - ./docker/mysql/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD", "mysqladmin","ping","-h","localhost","-psales123"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - saga-net
+
+  # ===============================
+  # ELASTICSEARCH
+  # ===============================
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    container_name: elasticsearch
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9200"]
+    networks:
+      - saga-net
+
+  # ===============================
+  # KIBANA
+  # ===============================
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.11.0
+    container_name: kibana
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    networks:
+      - saga-net
+
+  # ===============================
+  # PROMETHEUS
+  # ===============================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    depends_on:
+      - kafka
+    networks:
+      - saga-net
+
+  # ===============================
+  # GRAFANA
+  # ===============================
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    depends_on:
+      - prometheus
+    networks:
+      - saga-net
+
+  # ===============================
+  # JAEGER (OTLP ENABLED)
+  # ===============================
+  jaeger:
+    image: jaegertracing/all-in-one:1.51
+    container_name: jaeger
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    command:
+      - "--collector.otlp.enabled=true"
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+      - "4318:4318"
+    networks:
+      - saga-net
+
+volumes:
+  es-data:
+
+networks:
+  saga-net:
+    name: saga-net
+    driver: bridge
+```
+
+### O que cada peça faz rapidamente
+
+- **Zookeeper + Kafka**: backbone de eventos da SAGA. Todos os microserviços se comunicam via tópicos Kafka.
+- **MySQL (`mysql-db`)**: armazena dados de vendas, pagamentos, estoque (e outros domínios).
+- **Elasticsearch + Kibana**: guardam e exibem logs e eventos da aplicação.
+- **Prometheus + Grafana**: coletam métricas (via Actuator / Micrometer) e exibem dashboards.
+- **Jaeger**: recebe spans via OTLP e permite **tracing distribuído** entre os microsserviços.
+
+---
+
+## 🚀 Subindo tudo com Docker
+
+### 1. Subir a infra primeiro
+
+Na raiz do projeto:
+
+```bash
+docker compose -f docker-compose.infra.yml up -d
+```
+
+Verifique se está tudo saudável:
+
+```bash
+docker ps
+```
+
+### 2. Subir os microsserviços
+
+Em seguida:
+
+```bash
+docker compose -f docker-compose.app.yml up -d
+```
+
+No `docker-compose.app.yml` você terá serviços como:
+
+- `sale-service`
+- `inventory-service`
+- `payment-service`
+- `orchestrator-service`
+
+Cada um configurado para:
+
+- Usar `SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:19092`
+- Usar `SPRING_DATASOURCE_URL=jdbc:mysql://db:3306/...`
+- Enviar traces para `jaeger:4318`
 
 ---
 
 ## 🌐 API de Compra/Venda (único endpoint HTTP)
 
-Toda a interação de “compra” e “venda” é feita através da mesma API HTTP, exposta pelo **`sale-service`**.
+**Serviço responsável:** `sale-service`  
+**Base URL (quando rodando local ou em container mapeado):** `http://localhost:8081`  
+**Contexto:** `/api/v1/sales`
 
-### Serviço responsável
-
-- **Microserviço:** `sale-service`
-- **Base URL local:** `http://localhost:8081`
-- **Contexto da API:** `/api/v1/sales`
-
-Os outros serviços **não expõem endpoints HTTP para esse fluxo** – eles participam apenas por eventos Kafka dentro da arquitetura SAGA.
-
----
-
-## 🛒 Criar uma Compra (REQUISIÇÃO POST)
-
-Para **realizar uma compra**, faça uma requisição HTTP `POST` para o `sale-service`.
-
-### Endpoint
+### Criar uma compra
 
 ```http
 POST http://localhost:8081/api/v1/sales
 Content-Type: application/json
 ```
 
-### Exemplo de requisição no Postman (compra)
-
-No Postman:
-
-1. Crie uma nova request `POST`.
-2. URL: `http://localhost:8081/api/v1/sales`
-3. Aba **Headers**:
-   - `Content-Type: application/json`
-4. Aba **Body**:
-   - Selecione `raw`
-   - Selecione `JSON`
-   - Corpo:
+### Exemplo de corpo (Postman / HTTP)
 
 ```json
 {
@@ -114,60 +338,40 @@ No Postman:
 }
 ```
 
-### O que esses campos representam
+**Campos:**
 
 - `userId`: ID do comprador
 - `sellerId`: ID do vendedor
-- `offerId`: alguma oferta/cotação associada à venda
+- `offerId`: ID da oferta/cotação
 - `productId`: ID do produto
-- `quantity`: quantidade comprada
-- `value`: valor total da operação
-- `type`: tipo da operação (por exemplo, `1` representando “compra” – conforme seu domínio)
+- `quantity`: quantidade
+- `value`: valor total
+- `type`: tipo de operação (ex.: `1` = compra)
 
-Depois de enviar essa requisição:
+Após o `POST`:
 
-1. O `sale-service` recebe os dados.
-2. Registra a intenção de venda/compra.
-3. Dispara **eventos no Kafka** (como “SALE_CREATED”) para os demais serviços.
-4. A partir daí:
-   - `inventory-service` verifica/atualiza estoque.
-   - `payment-service` tenta processar o pagamento.
-   - `orchestrator-service` coordena o fluxo e aplica a SAGA:
-     - Se tudo der certo → confirma a venda.
-     - Se algo falhar → dispara eventos de compensação (cancelar pagamento, liberar estoque, cancelar venda, etc.).
-
-Toda essa segunda parte é 100% **assíncrona e baseada em eventos Kafka** – você não precisa chamar manually outros endpoints HTTP.
+1. `sale-service` registra a venda e publica um evento no Kafka (ex.: `SALE_CREATED`).
+2. `orchestrator-service` consome esse evento e controla o fluxo:
+   - chama (via evento) `payment-service`  
+   - depois `inventory-service`  
+   - e publica eventos de sucesso/falha.
+3. Em caso de falha, o orquestrador dispara **eventos de compensação** para reverter o que já foi feito.
 
 ---
 
-## 💡 E a “venda” (o outro lado)?
+## ⚙️ Build e Execução Local (sem Docker para apps)
 
-Na sua arquitetura, **compra e venda** são tratados pelo mesmo endpoint `/api/v1/sales`.  
-A distinção é feita:
-
-- Pelo **payload** (`type`, `value`, etc.).
-- Pela lógica de domínio dentro do `sale-service` e dos demais serviços.
-
-Ou seja:
-
-- Você **não tem uma segunda API HTTP separada** para venda.
-- A **única API HTTP pública é a de `sale-service`**, e a partir dela a arquitetura SAGA cuida do resto via Kafka.
-
-Se você quiser representar “venda” (em outro sentido de operação) via API, geralmente será com outro valor de `type` ou outro endpoint dentro do `sale-service` (por exemplo, `/api/v1/sales/sell`), mas a lógica continua dentro do mesmo microserviço.
-
----
-
-## ⚙️ Build e Execução Local (Java 17 + Maven)
+Se quiser rodar os serviços manualmente (após subir só a infra com Docker):
 
 ### 1. Build de todos os serviços
 
-Na raiz do projeto:
+Na raiz:
 
 ```bash
 mvn -q -DskipTests clean package
 ```
 
-Ou, por serviço:
+Ou por serviço:
 
 ```bash
 cd sale-service
@@ -183,18 +387,12 @@ cd ../orchestrator-service
 mvn -q -DskipTests clean package
 ```
 
-### 2. Rodar cada serviço com Java 17
-
-Exemplo para `sale-service`:
+### 2. Rodar cada serviço
 
 ```bash
 cd sale-service
 java -jar target/sale-service-0.0.1-SNAPSHOT.jar --spring.profiles.active=local
-```
 
-Para os demais:
-
-```bash
 cd ../inventory-service
 java -jar target/inventory-service-0.0.1-SNAPSHOT.jar --spring.profiles.active=local
 
@@ -205,57 +403,56 @@ cd ../orchestrator-service
 java -jar target/orchestrator-service-0.0.1-SNAPSHOT.jar --spring.profiles.active=local
 ```
 
-Certifique-se de que o profile `local` (ou equivalente) use:
+O profile `local` deve usar:
 
-- `jdbc:mysql://localhost:3306/...`
 - `spring.kafka.bootstrap-servers=localhost:9092`
-- `elasticsearch: http://localhost:9200`
+- `spring.datasource.url=jdbc:mysql://localhost:3306/...`
+- OTEL/Jaeger apontando para `http://localhost:4318` (se Jaeger estiver via Docker).
 
 ---
 
 ## 🔁 Fluxo resumido da SAGA
 
-1. Cliente chama **apenas a API do `sale-service`** (`POST /api/v1/sales`).
-2. `sale-service` publica evento no **Kafka**.
-3. `orchestrator-service` e outros serviços (`inventory-service`, `payment-service`) reagem aos eventos.
-4. Em caso de falha em alguma etapa:
-   - A SAGA dispara **eventos de compensação** (ex.: cancelar pagamento, estornar estoque, cancelar venda).
+1. Cliente faz `POST /api/v1/sales` no `sale-service`.
+2. `sale-service` publica evento de criação da venda no Kafka.
+3. `orchestrator-service` consome o evento, decide o próximo passo e envia comandos (eventos) para:
+   - `payment-service` (processar pagamento)
+   - `inventory-service` (baixar estoque)
+4. Em caso de erro:
+   - `orchestrator-service` publica eventos de **compensação** (cancelar pagamento, repor estoque, cancelar venda).
 5. Em caso de sucesso em todas as etapas:
-   - A venda é concluída e marcada como finalizada.
+   - A venda é marcada como concluída e o estado final é persistido.
 
-Toda a coordenação é feita por mensagens no Kafka; a API HTTP é **única e centralizada** em `sale-service`.
+Tudo isso é monitorável via:
+
+- **Kibana** (logs)
+- **Grafana** (métricas via Prometheus)
+- **Jaeger** (traces distribuídos da SAGA)
 
 ---
 
-## 🧾 Resumo rápido
+## 🧾 Resumo rápido de comandos
 
-- Subir infra:
+- Subir **infra**:
 
   ```bash
   docker compose -f docker-compose.infra.yml up -d
   ```
 
-- Buildar serviços localmente:
+- Subir **apps** (microsserviços):
 
   ```bash
-  mvn -q -DskipTests clean package
+  docker compose -f docker-compose.app.yml up -d
   ```
 
-- Rodar `sale-service` (Java 17):
-
-  ```bash
-  cd sale-service
-  java -jar target/sale-service-0.0.1-SNAPSHOT.jar --spring.profiles.active=local
-  ```
-
-- Chamar **única API de compra/venda** (Postman):
+- Criar uma venda/compra:
 
   ```http
   POST http://localhost:8081/api/v1/sales
   Content-Type: application/json
   ```
 
-  Body (JSON):
+  Body:
 
   ```json
   {
@@ -269,4 +466,4 @@ Toda a coordenação é feita por mensagens no Kafka; a API HTTP é **única e c
   }
   ```
 
-- Todo o resto da orquestração é feito internamente via Kafka, usando o padrão **SAGA**.
+A partir daí, a **SAGA orquestrada** faz todo o trabalho pesado via Kafka entre `sale-service`, `payment-service`, `inventory-service` e `orchestrator-service`.

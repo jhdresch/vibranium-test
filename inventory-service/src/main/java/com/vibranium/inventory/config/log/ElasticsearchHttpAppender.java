@@ -31,7 +31,7 @@ public class ElasticsearchHttpAppender extends AppenderBase<ILoggingEvent> {
             doc.put("message", eventObject.getFormattedMessage());
 
             // campos fixos úteis
-            doc.put("service", "sale-service");
+            doc.put("service", "inventory-service");
             doc.put("environment", "dev");
 
             byte[] json = objectMapper.writeValueAsBytes(doc);
