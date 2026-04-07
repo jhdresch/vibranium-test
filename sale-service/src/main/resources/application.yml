@@ -14,6 +14,12 @@ spring:
     password: sales123
     driver-class-name: com.mysql.cj.jdbc.Driver
 
+  flyway:
+    enabled: true
+    # locations where Flyway will look for migrations
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
   jpa:
     hibernate:
       ddl-auto: update
